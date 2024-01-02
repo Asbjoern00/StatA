@@ -63,6 +63,6 @@ Under the above model considerations it is absurd to observe only the actual obs
 
 ## 6.
 
-There seems to be a general downward trend for each year even before the law is passed, which is of course problematic when we assume that the rate is constant throughout years, and it muddys our conclusion on the effect of the law.
+There seems to be a general downward trend for each year even before the law is passed, which is of course problematic when we assume that the rate is constant throughout years, and it muddys our conclusion on the effect of the law. blblabl
 
 
