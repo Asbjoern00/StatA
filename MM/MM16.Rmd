@@ -1,0 +1,54 @@
+---
+title: "MM16"
+output: html_document
+date: "2023-12-02"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list = ls())
+library(ggplot2)
+library(dplyr)
+library(lme4)
+library(LabApplStat)
+library(readr)
+setwd("~/Desktop/statA/MM")
+load("FtestData.Rdata")
+FtestData$ID <- as.factor(FtestData$ID)
+```
+
+```{r}
+DD(~ID + Treatment, data = FtestData) %>% plot()
+```
+See that ID is finer than treatment.
+
+```{r}
+meandata <-
+FtestData %>%
+group_by(ID,Treatment) %>%
+summarize(m = mean(y))
+
+lm(m ~ Treatment, meandata) %>% drop1(test="F")
+```
+
+Appropriate to do this since geometrically orthogonal and balanced. also 'greenness is not assumed to vary in a systematic way between leaves from
+the same plant'.
+
+We can also do likelihood ratio test on mixed model:
+
+```{r}
+m1 <- lmer(y ~ Treatment + (1|ID), data=FtestData)
+m1 %>% drop1(test="Chisq")
+```
+
+Or by an exact F-test via the lmerTest package
+```{r}
+lmerTest::lmer(y ~ Treatment + (1|ID), data=FtestData) %>% drop1()
+```
+Or by simulation of LRT with PBmodComp
+```{r}
+m1ML <- lmer(y ~ Treatment + (1|ID), data=FtestData, REML=FALSE)
+m2ML <- lmer(y ~ 1 + (1|ID), data=FtestData, REML=FALSE)
+pbkrtest::PBmodcomp(m1ML,m2ML)
+```
+We se that the p-value associated to the LRT test compared with a $\chi^2$ distribution  is about half of the simulated LRT p-value. The F-value is even larger. Notice that the F-value is the same as in the linear model approach. 

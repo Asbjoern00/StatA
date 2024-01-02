@@ -1,0 +1,197 @@
+---
+title: "aflevering"
+output:
+  pdf_document:
+      keep_tex: TRUE
+date: "2023-10-17"
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(lme4)
+library(dplyr)
+library(ggplot2)
+```
+
+## R Markdown
+```{r}
+load("DWBdata.Rdata")
+fit1 <- lmer(DWB100 ~ WkDay + z2sleep + (z2sleep|NameID), data = DWBdata)
+fixef(fit1)
+```
+
+```{r eval=FALSE, include=FALSE}
+fit2 <- lmer(DWB100 ~ WkDay + z2sleep + (1|NameID), data = DWBdata)
+M <- 2e3
+X <- fit2 %>% model.matrix()
+Z <- fit2 %>% getME(name="Z")
+beta <- fixef(fit2)
+tau <- (VarCorr(fit2) %>% as.data.frame())$sdcor[1]
+sigma <- (VarCorr(fit2) %>% as.data.frame())$sdcor[2]
+resMat <- matrix(NA,M,3)
+for (i in 1:M) {
+B <- rnorm(27, 0, tau)
+eps <- rnorm(nrow(DWBdata), 0, sigma)
+y <- X %*% beta + Z %*% B + eps
+simdata <- DWBdata
+simdata$y <- as.numeric(y)
+lmm <- lmer(y ~ WkDay + z2sleep + (1|NameID), data = simdata)
+resMat[i,1] <- fixef(lmm)[8]
+resMat[i,2:3] <- confint(lmm,method="Wald")[10,]
+}
+resData <- data.frame(resMat)
+names(resData) <- c("est","lower","upper")
+```
+
+```{r eval=FALSE, include=FALSE}
+resData %>% summarise(bias = mean(est)-beta["z2sleep"])
+```
+
+
+```{r eval=FALSE, include=FALSE}
+resData %>% mutate(cover = (beta[8] > lower)*(beta[8] < upper)) %>% summarise(coverage = mean(cover))
+```
+
+```{r eval=FALSE, include=FALSE}
+ggplot() +
+geom_histogram(resData, mapping = aes(x = est, y = ..density..), color = "white", bins = 30) +
+geom_vline(xintercept = beta[8], color = "red", linetype = "dashed") +
+geom_vline(xintercept = mean(resData$est), color = "blue", linetype = "dashed")
+```
+
+
+
+```{r}
+
+# t distribution with 3 degrees of freedom
+
+fit2 <- lmer(DWB100 ~ WkDay + z2sleep + (1|NameID), data = DWBdata)
+M <- 2e3
+X <- fit2 %>% model.matrix()
+Z <- fit2 %>% getME(name="Z")
+beta <- fixef(fit2)
+tau <- (VarCorr(fit2) %>% as.data.frame())$sdcor[1]
+sigma <- (VarCorr(fit2) %>% as.data.frame())$sdcor[2]
+resMat <- matrix(NA,M,3)
+for (i in 1:M) {
+B <- rt(27, 3)*tau/(sqrt(3/(3-2)))
+eps <- rnorm(nrow(DWBdata), 0, sigma)
+y <- X %*% beta + Z %*% B + eps
+simdata <- DWBdata
+simdata$y <- as.numeric(y)
+lmm <- lmer(y ~ WkDay + z2sleep + (1|NameID), data = simdata)
+resMat[i,1] <- fixef(lmm)[8]
+resMat[i,2:3] <- confint(lmm,method="Wald")[10,]
+}
+resData <- data.frame(resMat)
+names(resData) <- c("est","lower","upper")
+```
+
+```{r}
+resData %>% summarise(bias = mean(est)-beta["z2sleep"])
+```
+
+```{r}
+resData %>% mutate(cover = (beta[8] > lower)*(beta[8] < upper)) %>% summarise(coverage = mean(cover))
+```
+
+```{r}
+ggplot() +
+geom_histogram(resData, mapping = aes(x = est, y = ..density..), color = "white", bins = 30) +
+geom_vline(xintercept = beta[8], color = "red", linetype = "dashed") +
+geom_vline(xintercept = mean(resData$est), color = "blue", linetype = "dashed")
+```
+
+
+
+```{r}
+
+# Exponential
+
+fit2 <- lmer(DWB100 ~ WkDay + z2sleep + (1|NameID), data = DWBdata)
+M <- 2e3
+X <- fit2 %>% model.matrix()
+Z <- fit2 %>% getME(name="Z")
+beta <- fixef(fit2)
+tau <- (VarCorr(fit2) %>% as.data.frame())$sdcor[1]
+sigma <- (VarCorr(fit2) %>% as.data.frame())$sdcor[2]
+resMat <- matrix(NA,M,3)
+for (i in 1:M) {
+B <- (rexp(27)-1)*tau
+eps <- rnorm(nrow(DWBdata), 0, sigma)
+y <- X %*% beta + Z %*% B + eps
+simdata <- DWBdata
+simdata$y <- as.numeric(y)
+lmm <- lmer(y ~ WkDay + z2sleep + (1|NameID), data = simdata)
+resMat[i,1] <- fixef(lmm)[8]
+resMat[i,2:3] <- confint(lmm,method="Wald")[10,]
+}
+resData <- data.frame(resMat)
+names(resData) <- c("est","lower","upper")
+```
+
+```{r}
+resData %>% summarise(bias = mean(est)-beta["z2sleep"])
+```
+
+```{r}
+resData %>% mutate(cover = (beta[8] > lower)*(beta[8] < upper)) %>% summarise(coverage = mean(cover))
+```
+
+```{r}
+ggplot() +
+geom_histogram(resData, mapping = aes(x = est, y = ..density..), color = "white", bins = 30) +
+geom_vline(xintercept = beta[8], color = "red", linetype = "dashed") +
+geom_vline(xintercept = mean(resData$est), color = "blue", linetype = "dashed")
+```
+
+
+
+
+
+
+
+
+
+```{r eval=FALSE, include=FALSE}
+run_experiment <- function(mu_0, mu_1, sigma_sq, n){
+  
+  #Get the optimal prediction rule
+  pred_rule <- (mu_1 + mu_0)/2
+  
+  #Simulate from the marginal of Y
+  Y <- rbinom(n, 1, 1/2)
+  
+  #Simulate from the conditional of X given Y
+  mus <- Y*mu_1 + (1-Y)*mu_0
+  X <- rnorm(n, mus, sqrt(sigma_sq))
+  
+  #Make prediction 
+  pred <- (X >= pred_rule)
+  
+  #Return esitmated probability
+  return(mean(pred == Y))
+}
+```
+
+```{r eval=FALSE, include=FALSE}
+
+mu_0s <- c(1,1,1,2)
+mu_1s <- c(1.5,2,1.5,2.5)
+sigma_sqs <- c(1,1,2,1)
+n <- 10000
+estim_prob <- numeric(length(mu_0s))
+
+for(i in seq_along(mu_0s)){
+  estim_prob[i] <- run_experiment(mu_0s[i], mu_1s[i], sigma_sqs[i], n)
+}
+
+```
+
+
+```{r eval=FALSE, include=FALSE}
+fit1 <- lmer(DWB100 ~ WkDay + z2sleep + (z2sleep|NameID), data=DWBdata)
+fit2 <- lmer(DWB100 ~ WkDay + z2sleep + (1|NameID), data=DWBdata)
+```
+

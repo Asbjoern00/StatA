@@ -1,0 +1,75 @@
+---
+title: "MM5"
+output: html_document
+date: "2023-12-02"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(dplyr)
+library(lme4)
+setwd("~/Desktop/statA/MM")
+ratData <- read.table("RatGrowthData.txt", header = TRUE) %>% tibble()
+
+```
+
+# 1
+
+Plot the data
+```{r}
+ggplot(ratData, aes(x = week, y = y)) + geom_line(aes(x = week, y = y, group = rat), linetype = "solid", color = "gray") + geom_point(size = 2) + xlab("Week") +  ylab("Weight in grams") + ggtitle("Weight of rats")
+```
+
+# 2.
+
+Fit four models
+
+```{r}
+model1 <- lmer(y ~ week + (1 | rat), data = ratData)
+model2 <- lmer(y ~ week + (1 + week || rat), data = ratData)
+model3 <- lmer(y ~ week + (1 + week | rat), data = ratData)
+model4 <- lmer(y ~ week + (week | rat), data = ratData)
+```
+
+Each model has the weight of rats of the response, and each of them has week as a fixed effect. Models are described in words below
+
+1. Rat enters as a random effect on the intercept. This means that each rat has it's own random birthweight.
+
+2. Rat enters as both a random effect on the intercept and slope of week. This means that each rat has it's random slope (i.e. growth rate per week) and intercept as described in 1. The double bar syntax indicates that the random effects between growth rate and birth weight are independent.
+
+3. The same as 2, but we allow for dependence between growth rate and birthweight.
+
+4. R by default adds a random intercept when including a random slope. This model is the same as 3.
+
+# 3.
+
+We compute confidence intervals for model 4.
+
+```{r}
+confint(model4)
+```
+.sig01 corresponds to the confidence interval for the random intercept variance, .sig02 corresponds to the correlation estimate between the random intercept and random slope, .sig03 corresponds to the random slope. .sigma is the residual variance. Intercept and week are fixed effects and are interpreted as usual.
+
+
+# 4.
+
+From the graph it looks like growth rate is pretty damn linear for the first 4 weeks. To investigate this we could add splines on week to the model. An alternative is to add an interaction term between week and whether it is before or after week 2, which is the midpoint of the experiment.
+
+```{r}
+ratData <- ratData %>% mutate(bef_week_2 = case_when(week <= 2 ~ "Y",
+                             TRUE ~ "N"))
+```
+and consider the model
+```{r}
+model5 <- lmer(y ~ week + week:bef_week_2 + (week | rat), data = ratData)
+```
+The positive parameter on the interaction term indicates that there could be higher growth rate in the first two weeks. We compute confidence intervals
+```{r}
+confint(model5)
+```
+Which is an indication that our suspicion is correct.
+
+
+
+

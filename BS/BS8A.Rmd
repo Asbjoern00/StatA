@@ -1,0 +1,68 @@
+---
+title: "BS8"
+output: html_document
+date: "2024-01-02"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list = ls())
+library(ggplot2)
+library(dplyr)
+library(brms)
+setwd("~/Desktop/statA/BS")
+load("mandatory3.Rdata")
+after <- subset(vanData, law==0)
+
+```
+
+# A
+
+## 1.
+
+We fit a Poisson model to the data under the assumption that $Y_i \sim poiss(\lambda)$ are i.i.d. Recall that the poisson family uses the log-link, so we get the following mle
+```{r}
+fitted <- glm(y ~ 1, family = poisson(), data = after)
+fitted %>% coef() %>% exp()
+```
+and the following confidence interval
+```{r}
+exp(confint(fitted))
+```
+
+## 2.
+
+Up to proportionality the likelihood for $(y_1, y_2, \cdots, y_n)$ given $\lambda$ is
+$$
+p(y|\lambda) = \prod_{i = 1}^n \frac{\lambda^{y_i}}{y_i!}\exp(\lambda) \propto \lambda^{\sum_{i = 1}^n y_i} \exp(-n\lambda) = \lambda^{n \bar{y}} \exp(-n\lambda)
+$$
+With $\bar{y}$ the average of the $y$'s. This shows that $\bar{y}$ is sufficient. If we have a uniform prior on $\lambda$ the posterior is
+$$
+p(\lambda| \bar{y}) \propto \lambda^{n \bar{y}} \exp(-n\lambda)
+$$
+Which we recognise as an unnormalized $\Gamma(n\bar{y} +1, n)$ distribution in the shape-rate parametrization. We can the simulate from the posterior to compute a credible interval and posterior mean
+```{r}
+ybar <- after$y %>% mean()
+n <- nrow(after)
+m <- 10000
+lambda_sim <- rgamma(m, n*ybar+1, n)
+mean(lambda_sim)
+quantile(lambda_sim, c(0.025, 0.975))
+```
+
+## 4.
+
+Let $\bar{Y}_j$ be the killed drivers after the law is passed and let these also be i.i.d. with the old ones. Consider $Z$ to be the total number of killed drivers after law is passed. Since sums of independent poisson random variables and there are 23 observations, $Z \sim pois(23\lambda)$. We simulate $Z$ from the prior predictive, by first using our simulated lambdas, and then simulating Z from the relevant poisson distribution. We find the 0.1, 1 and 5 pct quantile.
+```{r}
+quantile(rpois(m, 23*lambda_sim), c(0.001,0.01,0.05))
+```
+
+## 5.
+
+Under the above model considerations it is absurd to observe only the actual observed 119 deaths. This tells us that there should be an effect of the law.
+
+## 6.
+
+There seems to be a general downward trend for each year even before the law is passed, which is of course problematic when we assume that the rate is constant throughout years, and it muddys our conclusion on the effect of the law.
+
+

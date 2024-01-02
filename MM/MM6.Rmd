@@ -1,0 +1,100 @@
+---
+title: "MM6"
+output: html_document
+date: "2023-12-02"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list = ls())
+library(ggplot2)
+library(dplyr)
+library(lme4)
+
+setwd("~/Desktop/statA/MM")
+load("techrep.Rdata")
+dat1 <- dat1 %>% tibble() %>% mutate(Unit = as.factor(Unit))
+```
+
+```{r}
+dat1 %>% ggplot(aes(x=X, y = Y, color = Unit)) + geom_point()
+```
+Looks a bit like some of the yield/barley data we have looked at so far, just with a continous covariate laid on type of the unit type.
+
+
+# 2.
+
+We fit the model 
+```{r}
+mod1 <- lmer(Y ~ X + (1|Unit), data=dat1)
+mod1
+```
+We get $\hat{\alpha} = -0.1188$ and $\hat{\beta} = 1.9630$. We get the standard deviation on the intercept $\sigma_{B} = 0.6437$ and the residual standard deviation $sigma = 0.2110$. To get standard errors, we use the summary function
+```{r}
+summary(mod1)
+```
+We get $\hat{SE}_{\alpha} = 0.1396$ and \hat{SE}_{\beta} = 0.1505.
+
+
+# 3. 
+
+Recall that we are assuming the model
+$$
+Y_{ij} = \alpha + \beta X_i + B_i + \epsilon_{ij} 
+$$
+Introduce $Z_i = \frac{1}{3}\sum_{j = 1}^3Y_{ij}$. Then
+$$
+Z_i = \frac{1}{3}\sum_{j = 1}^3Y_{ij} = \frac{1}{3}\sum_{j = 1}^3\alpha + \beta X_i + B_i + \epsilon_{ij} 
+$$
+The only term depending on the summation index is the residual term. Hence 
+$$
+Z_i = \alpha + \beta X_i + B_i + \frac{1}{3}\sum_{j = 1}^3 \epsilon_{ij} = \alpha + \beta X_i + \epsilon'_i
+$$
+With $\epsilon' = B_i + \frac{1}{3}\sum_{j = 1}^3 \epsilon_{ij}$ since 
+$$
+0.25 + \frac{0.25}{3} = \frac{1}{3}
+$$
+We have $\epsilon_{i} \sim \mathcal{N}(0, \frac{1}{3})$ using rules for sums of independent gaussian variables.
+
+We compute the average responses within each group
+```{r}
+meanData1 <- group_by(dat1, Unit,X) %>% summarize(Z = mean(Y))
+```
+And fit the model described above
+```{r}
+linmod <- lm(Z ~ X, data = meanData1)
+summary(linmod)
+```
+We get the estimates $\hat{\alpha} = -0.1188$ and $\hat{\beta} = 1.9630$ and $\hat{SE}_{\alpha} = 0.1396$ and \hat{SE}_{\beta} = 0.1505. i.e. the same as in question 2. The estimated residual standard error is 0.6551 which is not the same as above - it is much larger.
+
+# 4.
+
+As already mentioned standard errors and parameter estimates coincide with the LMM whereas standard deviations do not. This would also be weird since we are combining variance from $\Beta_i$ and $\epsilon_{ij}$ in the model for $Z$. If we only care about the between unit variation, then the linear model has the advantage that it is simple and describes exactly what we want to know. 
+
+It seems unlikely that parameter estimates and standard errors would be the same if the design was not balanced. Variability from different observations would have different weights.
+
+# 5.
+
+Ignoring the sampling mechanism we could fit
+```{r}
+linmod_improper <- lm(Y ~ X, data = dat1)
+summary(linmod_improper)
+```
+This gives the same parameter estimates as before, but the standrad error is much lower - almost halved. This of course comes from the fact that we have inflated the numbers of observations. In the linear model fitted above we assume observations independent, which is clearly not the case, giving a lower standard error.
+
+
+# 6.
+
+Consider using Unit as a fixed factor. 
+```{r}
+lm_fixed <-  lm( Y ~ Unit + X, data=dat1)
+summary(lm_fixed)
+```
+We see that we get a `NA` estimate corresponding to $X$. This happens because $X$ can be written as linear combination of the other columns in the model matrix, i.e. $L_X \subset L_{\text{Unit}}$. Indeed, looking at the model matrix 
+```{r}
+model.matrix(lm_fixed)
+```
+Indeed, for a given $X_i$
+$$
+X_i = \sum_{j = 1}^{25}1_{\text{Unit}_j}(i) X_j 
+$$

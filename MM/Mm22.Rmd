@@ -1,0 +1,139 @@
+---
+title: "MM22"
+output: html_document
+date: "2023-12-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list = ls())
+library(ggplot2)
+library(dplyr)
+library(lme4)
+library(LabApplStat)
+library(readr)
+library(gridExtra)
+tinyData <- data.frame(subject=c(1,1,2,2), y=c(0.70,0.76,0.25,0.07))
+remlFit <- lmer(y ~ 1 + (1|subject), data=tinyData)
+```
+
+## 1.
+
+Let $B_j \sim \mathcal{N}(0, \tau^2)$ for $j = 1,2$, $\epsilon_i \sim \mathcal{N}(0, \sigma^2)$ be independent. Let $Y = X\beta + ZB + \epsilon$. Clearly $X = (1,1,1,1)$ and $Z = ((1,1,0,0),(0,0,1,1))$.
+
+## 2.
+
+Let 
+$$
+C = \begin{pmatrix}
+3 & -1 & -1 \\
+-1 & 3 & -1 \\
+-1 & -1 & 3 \\
+-1 & -1 & -1 \\
+\end{pmatrix}
+$$
+
+We show that $C$ has full rank and $C^T X = 0$
+```{r}
+C <- matrix(c(3,-1,-1,
+              -1, 3, -1,
+              -1, -1, 3,
+              -1,-1,-1), byrow =TRUE, nrow = 4, ncol = 3)
+t(C) %*% model.matrix(remlFit) 
+```
+for the full rank
+```{r}
+rankMatrix(C)
+```
+
+
+## 3.
+
+Define $W = C^TY$. Matrix calculations show
+$$
+W = \begin{pmatrix} W_1 \\ W_2 \\ W_3  \end{pmatrix} = C^T Y = \begin{pmatrix}
+3 & -1 & -1 & -1 \\
+-1 & 3 & -1 & -1 \\
+-1 & -1 & 3 & -1\\
+\end{pmatrix} \begin{pmatrix} Y_1 \\ Y_2 \\ Y_3 \\Y_4 \end{pmatrix} = \begin{pmatrix} 
+3Y_1-Y_2-Y_3-Y_4 \\
+-Y_1+3Y_2-Y_3-Y_4 \\
+-Y_1-Y_2+3Y_3-Y_4 \\
+\end{pmatrix}
+$$
+We have $cov(Y_1,Y_2) = cov(Y_3,Y_4) = \tau^2$ and the rest of the covariances zero.
+$$
+V(W_1) = V(3Y_1) + V(Y_2) + V(Y_3) + V(Y_4) + 2 cov(3Y_1, -Y_2) + 2cov(-Y_3,-Y_4)
+$$
+Using bilineatiy,
+$$
+V(W_1) = 12V(Y_1) - 4 cov(Y_1, Y_2) = 12 \sigma² + 8 \tau^2
+$$
+This is obiously the same for all $W$. 
+$$
+cov(W_1, W_2) = cov(3Y_1-Y_2-Y_3-Y_4, -Y_1+3Y_2-Y_3-Y_4) 
+$$
+
+This reduces to
+$$
+cov(3Y_1, -Y_1)+ cov(3Y_1, 3Y_2) + cov(-Y_2, -Y_1) + cov(-Y_2,3Y_2) + cov(-Y_3,-Y_3) + cov(-Y_3,-Y_4) + cov(-Y_4,-Y_4) + cov(-Y_4,-Y_3)
+$$
+Using bilinearity this equals
+$$
+-4V(Y_1) + 12cov(Y_1,Y_2) -  = -4(\sigma² + \tau^2) + 12\tau^2 = -4 \sigma^2 + 8\tau
+$$
+And using similarly computation (or 'cross-counting')
+$$
+cov(W_1,W_3) = cov(W_2,W_3) = -8 \tau² - 4 \sigma^2
+$$
+Giving the desired covariance matrix.
+
+## 4.
+we fit a model for $W$ by maximizing the likelihood.
+
+```{r}
+W <- t(C) %*% tinyData$y
+
+MinusLogL.W <- function(par)
+{
+tauSqr <- par[1]; sigmaSqr <- par[2] # assign parameters
+varMat <- diag(8*tauSqr + 12*sigmaSqr,3) # initialize variance matrix
+varMat[1,2] <- varMat[2,1] <- 8*tauSqr - 4*sigmaSqr
+varMat[1,3] <- varMat[3,1] <- varMat[2,3] <- varMat[3,2] <- -8*tauSqr - 4*sigmaSqr
+-mvtnorm::dmvnorm(as.numeric(W), mean=c(0,0,0), sigma=varMat, log=TRUE) # get the negative likelihood in parameters
+}
+out <- optim(par=c(1,1), fn=MinusLogL.W)$par # optimize
+tausq <- out[1]
+sigmasq <- out[2]
+```
+
+## 5.
+
+We get $\tau^2 = 0.1578$ and $\sigma^2 = 0.008999539$ compared to the reml estimates
+```{r}
+summary(remlFit)
+```
+Which is identical.
+
+
+## 6.
+
+Define a new matrix $C$ by 
+$$
+\tilde{C} = \begin{pmatrix}
+1 & 0 & 1 \\
+-1 & 0 & 0 \\
+0 & 1 & -1 \\
+0 & -1 &  0 
+\end{pmatrix}
+$$
+We have 
+```{r}
+C_tilde <- matrix(c(1,0,1,
+                    -1,0,0,
+                    0,1,-1,
+                    0,-1,0), byrow = TRUE, nrow = 4)
+rankMatrix(C_tilde)
+t(C) %*% model.matrix(remlFit)
+```
+We showed in exercise 21 that these will lead to the same estimates.

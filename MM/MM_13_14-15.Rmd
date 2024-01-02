@@ -1,0 +1,317 @@
+---
+title: "MM13_14_15"
+output: html_document
+date: "2023-12-10"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(MASS)
+library(dplyr)
+library(nlme)
+library(lme4)
+```
+
+Consider throughout the setup where data is sampled as $Y_i = (Y_{i1},Y_{i2})$. We assume $Y_i$ i.i.d with
+
+$$
+\begin{pmatrix} Y_{i1} \\ Y_{i2} \end{pmatrix} \sim \mathcal{N} \left( \begin{pmatrix} \theta_1 \\ \theta_2 \end{pmatrix}, \sigma^2 \begin{pmatrix} 1 & \rho \\ \rho & 1 \end{pmatrix} \right)
+$$
+
+# 1.
+
+We make a function to simulate data from the above situation
+
+```{r}
+design_sim <- function(m, theta_1, theta_2, sigma, rho){
+  mu <- c(theta_1, theta_2)
+  sigma <- sigma^2*matrix(c(1,rho,rho,1), nrow = 2, ncol = 2, byrow = TRUE)
+  sim <- MASS::mvrnorm(m, mu = mu, Sigma = sigma)
+  out <- tibble(obs = c(sim[,1],sim[,2]), type = c(rep(1, m), rep(2,m)), subject = c(seq(1,m), seq(1,m)))
+  return(out)
+}
+```
+
+# 2.
+
+We test if the function works with $\theta = (0.3,0.7)$, $\sigma = 1$ and $\rho = 0.9$.
+
+```{r}
+sim_df <- design_sim(10000, 0.3,0.7, 1, 0.9)
+
+#Check covariance
+cov(sim_df %>% filter(type == 1) %>% dplyr::select(obs), sim_df %>% filter(type == 2) %>% dplyr::select(obs)) #0.9184618
+
+#Check individual variances and means
+sim_df %>% group_by(type) %>% summarise(var = var(obs), mean = mean(obs))
+
+```
+Which looks good. 
+
+# MM 14
+
+Consider the same setup as above, but with $\theta_1 = \theta_2$. Let
+$$
+\Sigma = \begin{pmatrix} 1 & \rho \\ \rho & 1 \end{pmatrix}
+$$
+The density is given by
+$$
+f(x,\theta, \Sigma) = \frac{1}{\sqrt{(2\pi)^2|\Sigma|}} \exp\left(-\frac{1}{2}\left(x-(\theta,\theta)  \right)^T \Sigma^{-1} \left(x-(\theta,\theta)  \right)\right)
+$$
+Throwing everything constant (w.r.t $\theta$) away the log-likelihood in a single observation is
+$$
+\ell(\theta; Y) = \begin{pmatrix} Y_{i1}-\theta &  Y_{i2}-\theta \end{pmatrix} \Sigma^{-1} \begin{pmatrix} Y_{i1}-\theta \\  Y_{i2}-\theta \end{pmatrix}
+$$
+Since $\Sigma$ is symmetric, so is it's inverse, so we can write
+$$
+\Sigma^{-1} = \begin{pmatrix} a & b \\ b & c \end{pmatrix}
+$$
+And we can compute the quadrtic form as 
+$$
+a(Y_{i1}-\theta)^2 + c(Y_{i2}-\theta)^2 + 2b(Y_{i1}-\theta)(Y_{i2}-\theta)
+$$
+
+This is equal to (dropping the double index)
+$$
+aY_1^2 + \theta^2 - 2aY_1\theta + cY_2^2 + \theta^2 - 2cY_2\theta + 2bY_1Y_2+2b\theta^2 -2b Y_1\theta-2b Y_2\theta
+$$
+
+And taking derivatives w.r.t theta we see that
+$$
+2\theta - 2aY_1 + 2\theta - 2cY_2 + 4b\theta - 2b(Y_1+Y_2) = 0 \Leftrightarrow 2\theta -aY_1 - cY_2 + 2b\theta -b(Y_1+Y_2) = 0 
+$$
+
+Collecting the pieces,
+$$
+2\theta = b\frac{Y_1 + Y_2}{1+b} + \frac{aY_1 + cY_2}{1+b}
+$$
+But due to our assumption we can identify $a = 1$, $c=1$ (or actually $a = -1= -1$ something somewhere probably went wrong somewhere, and also disregarding that we have scaled things with $\sigma$, but this obviously does not matter.) and we find
+$$
+\theta = \frac{Y_1 + Y_2}{2}
+$$
+And for $m$ observations the MLE is 
+$$
+\hat{\theta} = \frac{1}{2m} \sum_{i = 1}^{m}Y_{i1} + Y_{i2} 
+$$
+Each term in the sum is normal and independent. The distribution is therefore normal. We have 
+$$
+E(Y_{i1} + Y_{i2}) = 2\theta
+$$
+And
+$$
+V(Y_{i1} + Y_{i2}) = V(Y_{i1}) + V(Y_{i2}) + 2cov(Y_{i1},Y_{i2}) = \sigma^2+\sigma^2 +2\rho\sigma^2 = 2\sigma^2(1+\rho)
+$$
+Hence 
+$$
+Y_{i1} + Y_{i2} \sim \mathcal{N}(2\theta, 2(1+\rho))
+$$
+when is
+And therefore
+$$
+\hat{\theta} \sim \mathcal{N}(\theta, \sigma^2\frac{1+\rho}{2m} )
+$$
+
+We simulate a dataset and fit a model
+```{r}
+theta_1 <- 1
+theta_2 <- 1
+sigma <- 0.5
+rho <- 0.7
+m <- 50
+mydata <- design_sim(m, theta_1, theta_2, sigma, rho)
+
+fit <- lmer(obs~1 + (1|subject), data=mydata)
+summary(fit)
+```
+We get the estimate $\hat{\theta} = 0.94135$ (expcted value 1). We get the total variance,
+$$
+\hat{\sigma}^2 =  0.16092 + 0.06783 = 0.23 \Rightarrow \hat{\sigma} = 0.48
+$$
+which is also pretty close. We have that
+$$
+\hat{\rho} = 0.16092/0.23 = 0.695
+$$
+Which is also fairly close. The estimated standard error is 0.06242. We would expect it to be
+$$
+\sqrt{0.25\frac{1+0.7}{2 \cdot 50}} = \sqrt{0.00425} = 0.06519202
+$$
+Which is not too far of either.
+
+Let us try to do a negative correlation.
+
+```{r}
+theta_1 <- 1
+theta_2 <- 1
+sigma <- 0.5
+rho <- -0.7
+m <- 50
+mydata <- design_sim(m, theta_1, theta_2, sigma, rho)
+
+fit <- lmer(obs~1 + (1|subject), data=mydata)
+summary(fit)
+```
+We get a singular fit. The random effect is cast to zero. This probably happens since we are considering a negative correlation so it becomes hard to detect whether we have residual variance or variation stemming from correlation. We try to do the same fit with generalized least squares
+
+```{r}
+fit <- gls(obs~1, correlation = corSymm(form=~1|subject), data=mydata)
+summary(fit)
+```
+We get the estimates $\hat{\theta} = 0.9999509$, $\hat{\rho} = -0.69$, $\hat{\sigma} = 0.5657509$ all looking reasonable. We get the std.error 0.03151. We would expect it to be
+
+$$
+\sqrt{0.25\frac{1-0.7}{2 \cdot 50}} = \sqrt{0.00175} = 0.041833
+$$
+
+## 2.
+
+If we only consider the first observation for each individual the MLE is obviously
+$$
+\tilde{\theta} = \frac{1}{m}\sum_{i = 1}^m Y_{i1}
+$$
+The distribution is
+$$
+\tilde{\theta} \sim \mathcal{N}(\theta, \frac{\sigma^2}{m})
+$$
+With standard error $\sigma/\sqrt{m}$. Let us fit this to simulated data
+```{r}
+reduced <- mydata %>% filter(type == 1)
+reduced_mod <- lm(obs ~ 1, data = reduced)
+summary(reduced_mod)
+```
+We get $\tilde{\theta} = 1.046$ (reasonable) and $\hat{\sigma^2} = 0.5712$ (reasonable) and finally a std. error of 0.08077. We would have expected $0.5/\sqrt{50} = 0.0707$ so this also looks reasonable.
+
+# 3.
+
+For a given number of observations $m$ we have that
+$$
+\text{std.error}(\hat{\theta})  = \sigma \sqrt{\frac{1+\rho}{2m}}
+$$
+Whereas for $k$ observations we will have
+
+$$
+\text{std.error}(\tilde{\theta})  = \frac{\sigma}{\sqrt{k}}
+$$
+So for the two estimators to have the same precision we should have that
+$$
+\frac{\sigma}{\sqrt{k}} = \sigma \sqrt{\frac{1+\rho}{2m}} \Leftrightarrow k = \frac{2m}{1+\rho}
+$$
+
+Evidently, this means that $k$ is decreasing in $\rho$. This means that the more (positively) correlated observation are the smaller $k$ needs to be for the two estimators to match precision. In the extreme case $\rho = 1$ we reduce to $k = m$. Intuitively when we observe non or anticorrelated respones we gain extra information on the thing we are trying to estimate, i.e. the mean because we get an effectively larger sample size.
+
+We do a small simulation study to summarise
+```{r}
+theta_1 <- 1
+theta_2 <- 1
+sigma <- 0.5
+rho <- 0.7
+m <- 50
+k <- round(2*m/(1+rho))
+n <- 1000
+
+reduced_res <- numeric(n)
+full_res <- numeric(n)
+
+for (i in 1:n){
+  mydata <- design_sim(m, theta_1, theta_2, sigma, rho)
+  mydata_reduced <- design_sim(k, theta_1, theta_2, sigma, rho) %>% filter(type == 1)
+  
+  reduced_mod <- lm(obs ~ 1, data = mydata_reduced)
+  sum_reduced <-summary(reduced_mod)
+  reduced_res[i] <- sum_reduced$coefficients[,"Std. Error"]
+  
+  fit <- lmer(obs~1 + (1|subject), data=mydata)
+  full_sum <- fit %>% summary()
+  full_res[i] <- full_sum$coefficients[,"Std. Error"]
+}
+
+mean(full_res) - mean(reduced_res)
+```
+And we do indeed see that the deviation is very small.
+
+
+# MM 15
+
+
+## 1. 
+
+
+Consider the same setup as above but where we are interested in estimating $\delta = \theta_2 - \theta_1$ with the two $\theta_i$ different. The natural (maximum likelihood) estimator is
+
+$$
+\hat{\delta} = \frac{1}{m}\sum_{i = 1}^m Y_{i2}-Y_{i1}
+$$
+
+Clearly the distribution of $\delta$ is normal with
+$$
+E\hat{\delta} = \delta
+$$
+And
+$$
+V\hat\delta = \frac{1}{m²}\sum_{i = 1}^m VY_{i1} + VY_{i2} - 2cov(Y_{i2},Y_{i2}) = (2\sigma² - 2\sigma^2\rho)/m = \frac{2\sigma²(1-\rho)}{m}
+$$
+Hence $\hat{\delta}$ is normal with these parameters. We obviously have that
+$$
+\text{std.error}(\hat{\delta}) = \sigma \sqrt{\frac{2(1-\rho)}{m}}
+$$
+
+We simulate from the model
+```{r}
+m <- 50
+theta1 <- 1
+theta2 <- 0 
+sigma <- 0.5
+rho <- 0.7
+mydata3 <- design_sim(m, theta1, theta2, sigma, rho)
+
+gls_fit <- gls(obs~factor(type), data=mydata3, correlation = corSymm(form=~1|subject))
+lmer_fit <- lmer(obs~factor(type) + (1|subject), data=mydata3)
+```
+We check the gls fit
+```{r}
+summary(gls_fit)
+```
+Looks very reasonable. we would expect the standard error to be $2(0.7)^2(1-0.7)/50 = 0.06$ which we are not far of from.
+```{r}
+gls_fit
+```
+Reisudal standard error and correlation also looks correct.
+
+For the Lmer fit
+```{r}
+summary(lmer_fit)
+```
+The estimate and std. error looks reasonable. The variance is $0.16053  + 0.08921 = 0.25$ which also looks reasonable compared to $\sigma$ and $\rho = 0.16053/0.25 = 0.64$. which is also ok.
+
+We could do the same with a negative correlation. We will get a higher standard error.
+
+## 2.
+
+Assume now that we observe $k$ subjects before trial and $k$ other subjects after trial, i.e. we have to independent samples.
+
+Obvisously this corresponds to the model we have already studied with $\rho = 0$. The MLE $\tilde{\delta}$ is the same but
+$$
+V\tilde\delta = \frac{1}{k²}\sum_{i = 1}^k VY_{i1} + VY_{i2} = (2\sigma²)/m = \frac{2\sigma²}{k} \Rightarrow std.error(\tilde{\delta}) = \sqrt{2}\sigma/\sqrt{k}
+$$
+
+We can simulate from the model as before and fit a linear model
+```{r}
+m <- 50
+theta1 <- 1
+theta2 <- 0 
+sigma <- 0.5
+rho <- 0
+mydata3 <- design_sim(m, theta1, theta2, sigma, rho)
+mydata3$type <- factor(mydata3$type, levels = c(2,1))
+fit_lm <- lm(obs ~ type, data = mydata3)
+summary(fit_lm)
+```
+We would expect a standard error of $\sqrt{2}\cdot 0.5/\sqrt{50} = 0.1$ which we hit close to. estimate also looks goodie.
+
+## 3.
+
+We see that the standard errors of $\hat{\delta}$ and $\tilde{\delta$ are equal iff
+$$
+\sqrt{2}\sigma/\sqrt{k} = \sigma \sqrt{\frac{2(1-\rho)}{m}} \Leftrightarrow k = \frac{m}{1-\rho}
+$$
+if $\rho = 0$ these are equal. If there is positive correlation $k$ will be larger than $m$ and if there is negative correlation $k$ is smaller than $m$. The intuition is the same as in MM 14.
+

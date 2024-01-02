@@ -1,0 +1,67 @@
+---
+title: "MM23"
+output: html_document
+date: "2023-12-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list = ls())
+library(ggplot2)
+library(dplyr)
+library(lme4)
+library(LabApplStat)
+library(readr)
+library(gridExtra)
+library(pbkrtest)
+
+load("/home/asr/Desktop/statA/ass1/DWBdata.Rdata")
+fit1 <- lmer(DWB100 ~ WkDay + z2sleep + (z2sleep|NameID), data=DWBdata)
+```
+
+# 1.
+
+We test $H_0 EY \in L_{z2sleep}$, the hypothesis is that weekday has no effect on daily well being. We first do an F-test based on SatterWhathes method.
+```{r}
+null_fit <- lmer(DWB100 ~ z2sleep + (z2sleep|NameID), data=DWBdata)
+SATmodcomp(fit1, null_fit)
+```
+And get a very small p-value. We do simulation and chi-sq approximated testing
+```{r}
+PBmodcomp(fit1, null_fit)
+```
+And also get a very small p-value in both cases. The p-values are comparable.
+
+# 2.
+
+Consider the hypothesis that daily well-being is the same on sundays and saturdays. We can modify the data, to have the same level for sunday and saturday. An F-test gives
+```{r}
+DWBdata <- DWBdata %>% mutate(wk_day_mod = factor(case_when(as.numeric(WkDay) >= 6 ~ as.factor(6),
+                                          TRUE ~ WkDay)))
+null_fit <- lmer(DWB100 ~ wk_day_mod + +z2sleep + (z2sleep|NameID), data=DWBdata)
+SATmodcomp(fit1, null_fit)
+```
+Which is not significant. We do simulation and LRT
+```{r}
+PBmodcomp(fit1, null_fit)
+```
+Which also gives large p-values. An alternative is to set the contrast to sunday and do a t-test
+```{r}
+DWBdata$WkDay <- factor(DWBdata$WkDay, levels = c(7,seq(1,6)))
+fit1 <- lmerTest::lmer(DWB100 ~ WkDay + z2sleep + (z2sleep|NameID), data=DWBdata)
+fit1 %>% summary()
+```
+Which also gives the same result.
+
+## 3.
+
+We can test for differenes between weekend/weekdays the same as above
+
+```{r}
+DWBdata <- DWBdata %>% mutate(weekend = factor(case_when(as.numeric(WkDay) >= 6 ~ "weekend",
+                                          TRUE ~ "workday")))
+null_fit <- lmer(DWB100 ~ weekend + +z2sleep + (z2sleep|NameID), data=DWBdata)
+SATmodcomp(fit1, null_fit)
+
+```
+Which is very much significant.

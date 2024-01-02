@@ -1,0 +1,114 @@
+---
+title: "MM_1_4"
+output: html_document
+date: "2023-11-24"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# MM 1
+
+We consider an experiment with 10 types of chocolate. Each was tested 20 times, and the bitterness of each chocolate was evaluated on a continous scale. Dataset consists of 200 observations each with a `type` of chocolate and it's associated bitterness.
+
+## 1.
+
+Assume that all observations where made by different people. 
+
+There is not really a reason for including an identifier for which person is responsible, seeing as we have no way of controlling for this. After all, each person only does a single tasting. Measurements should in general be i.i.d.
+
+If we were to consider chocolate type as a fixed effect, we would be able to compare the chocolate types in terms of bitterness.
+
+If we were to consider chocolate type as a random effect, we would be able to model the variability between chocolate types in terms of bitterness.
+
+Both models would contain 10 parameters. 11 if we were to include an intercept.
+
+## 2.
+
+Assume only 20 people were involved, and each person tested each chocolate type. Now measurements is probably correlated for each persons assesments, and we cannot expect the observations by the same person to be independent. In this case it would make sense to have an identifier per observation for the person responsible for it, and model it as random effect. 
+
+# MM 2
+
+```{r}
+library(nlme)
+library(dplyr)
+df <- Rail %>% tibble()
+df$Rail <- as.factor(df$Rail)
+```
+
+
+`Rail` dataset contains measurements of travel time for waves in six railway rails selected at random from a railway stretch. Consider the linear mixed model with `Rail` as a random effect modelling `travel`. 
+
+## 1.
+
+It is inappropriate to model `Rail` as a fixed effect, as it is chosen at random from the railway stretch, i.e. the rails are not fixed. Further, the measurements within each rail are very likely dependent, so we can't reasonably model it as indenpendent observations. Introducing an intercept term for each rail as a fixed effect, would not let us say something about the variability between rails, which is of interest. The interpretation of the intercept is that it is the mean travel time for the railway stretch.
+
+## 2.
+
+We make a scatterplot of the data
+
+```{r}
+library(ggplot2)
+df %>% ggplot(aes(Rail,travel)) + geom_point()
+```
+There is definately some within rail variation, except for Rail 5 and 1. The largest source of variation seems to be between rails.
+
+## 3.
+
+Let $Y{ij} = \beta + B_i + \epsilon_{ij}$ be the travel time for rail $i$ in replication $j$. We commonly assume $B$ and $\epsilon$ independent and that the $\epsilon$'s are i.i.d and Gaussian with $\epsilon \sim \mathcal{N}(0, \sigma^2 I )$, with $I$ the identity matrix. It is also typically assumed that $B \sim \mathcal{N}(0,\Sigma_{\tau})$ with $\tau$ a variance parameter. From (2.4)
+$$
+Y \sim \mathcal{N} (X \beta, Z \Sigma_\tau Z^T + \sigma^2I)
+$$
+With $Z$ the random effects. In this case, the only $\beta$ in the model is the intercept. This means that the precise interpretation of $\beta$ is that it is the expected value of travel time for the entire railway stretch, i.e. were one to conduct a measurement at a random rail.
+
+
+## 4.
+
+We fit the model with both ML and REML
+
+```{r}
+library(lme4)
+REML <- lmer(travel ~ (1|Rail), data=Rail) # REML
+ML <- lmer(travel ~ (1|Rail), data=Rail, REML=FALSE) # ML
+```
+
+Getting model parameters
+
+```{r}
+ML %>% summary()
+```
+This means that the residual standard deviation is $4.021$, i.e. the within-rail variability is 4.021, the between rails deviation is 22.624. The estimated mean travel time is 66.500.
+
+```{r}
+REML %>% summary()
+```
+For REML the between rail variability is higher. The other parameters are the same, due to the simple model and balanced design.
+
+## 5.
+
+We are in the same situation as described in the Barley example so we can obtain the correlation for measurements from the same rail as
+$$
+\frac{\tau^2}{\tau^2+ \sigma^2} = \frac{615.31}{615.31 + 16.17} = 0.97439
+$$
+
+We have actually already written up the estimated distribution for the travel time of a new random rail. We have that
+$$
+Y \sim \mathcal{N} (X \beta, Z \Sigma_\tau Z^T + \sigma^2I) = \mathcal{N} (66.5, \sigma^2 + \tau^2) = \mathcal{N} (66.5, 615.31 + 16.17)
+$$
+## 6. 
+
+We now consider one-way Anova with `Rail` as a fixed effect, and compute the mean travel time by taking the mean over the six rails
+
+```{r}
+lm1 <- lm(travel ~ Rail-1 ,data = df)
+alpha <- mean(lm1$coefficients)
+```
+We of course get the same mean due to the balanced design. We can also get this via the emmeans package,
+
+```{r}
+library(emmeans)
+emmeans(lm1, ~1)
+```
+Where we also get the estimated standard error of $\alpha$ as 0.948. Looking at the model in part 4 this is 10 times smaller than that of $\beta$. This happens, since we are in the linear model treating each observation as independent whereby we overestimate the variability in the `Rail` predictor, leading us to underestimate the variance of the parameter estimates.
+

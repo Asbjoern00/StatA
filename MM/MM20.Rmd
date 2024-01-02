@@ -1,0 +1,109 @@
+---
+title: "MM20"
+output: html_document
+date: "2023-12-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list = ls())
+library(ggplot2)
+library(dplyr)
+library(lme4)
+library(LabApplStat)
+library(readr)
+library(gridExtra)
+setwd("/home/asr/Desktop/statA/MM")
+load("epiData.Rdata")
+epiData <- epiData %>% tibble()
+
+```
+
+## 1 
+
+We plot the data
+
+```{r}
+grid.arrange(
+epiData %>% group_by(period, drug) %>%
+summarize(MeanPerWeek = mean(seizures/timeadj)) %>%
+ggplot(aes(x=period,y=MeanPerWeek, col=drug)) +
+geom_line(size = 1.2, aes(group = drug, color = drug)) +
+geom_point(size = 2.6, aes(color = drug)),
+epiData %>% group_by(id) %>%
+ggplot(aes(x=period,y=(seizures/timeadj), col=drug)) +
+geom_line(size = 1, aes(group = id, color = drug)) +
+geom_point(size = 1.5, aes(color = drug)) + facet_wrap(~drug) +
+theme(legend.position = "none")
+)
+```
+
+On average it seems that there is a tendency to have less seizures on treatment, and this even seems to go down linearly.
+
+## 2.
+
+We fit the model
+```{r}
+epiData1 <- filter(epiData, period>0)
+glmer1 <- glmer(seizures ~ age + drug + log(baseline) + (1|id),
+family="poisson", data=epiData1)
+```
+Let $N$ be a baseline, $X$ a model matrix and $Y$ the response. Due to the log-link of the poisson we model
+$$
+E(Y|N,X) = \exp(N + X^T\beta)
+$$
+If we choose $M = log(N)$ as the we see that the baseline $N$ becomes multiplicative with $\exp(X^T\beta)$ insted of $\exp(N)$ which would happen if we did not log-transform $N$. It is more natural to consider multiplicity with the baseline rather than with exponential to the baseline. To get things on the same scale, since 8 weeks of seizures were measured up to the experiment where 4 measurements of length 2 were made, it would also be natural to consider $M = log(N/4)$ as the baseline. This does of course not matter for estimation of the treatment effect, since the baseline is fixed for each individual. 
+
+The drug effect is estimated to -0.366. This means that taking the drug, scales the baseline seizures with $\exp(-0.366) = 0.6935$ compared to the placebo group.
+
+We do a drop1 to see if there is effect of taking the drug.
+```{r}
+glmer1 %>% drop1(test = "Chisq")
+```
+We see that drug is signigicant at the 5 pct level.
+
+## 3.
+
+We can also model seizures with both the data from both the baseline and experimental period instead of just offsetting with it. Due to the count structure assumed by poisson we cant just divide by the length of the period (we could perhaps scale the other way). On the other hand we have to take it into account, as we want to be able to say something about the effect of the drug, and therefore have to take into the account that measurement lengths differ. We fit the model 
+
+```{r}
+glmer2 <- glmer(seizures ~ offset(log(timeadj)) + age + phase*drug + (1|id),
+family="poisson", data=epiData)
+```
+It is the interaction term that is relevant to look at because this gives the effect of the treatment in the experiment phase - which we want to compare to the baseline out of experiment level. We look at a summary
+```{r}
+summary(glmer2)
+```
+We see that the interaction effect is highly significant. We see that the baseline for groups is corresponding to treatment and placebo does not seem to differ. This is reasurring as we can isolate the effect to the interaction term. 
+
+
+To get a model where the log of the expected seizures develop linearly over time, we can multiply the timeadj and period covariates
+```{r}
+glmer3 <- glmer(seizures ~ offset(log(timeadj)) + period + age + phase*drug + (1|id),
+family="poisson", data=epiData)
+summary(glmer3)
+```
+The conclusions do not change.
+
+## 4.
+
+We can also fit a lmm to the data and ignore that they are counts.
+
+```{r}
+lmer2 <- lmer(seizures/timeadj ~ age + phase*drug + (1|id), data=epiData)
+```
+As we are in the linear case (identity link function), we can now actually use seizures divided by the length of the measurement period to get a model where the scale is correct. We make a residual plot
+```{r}
+lmer2 %>% plot()
+```
+Which looks horrible. Residuals are too large, and there is clear signs of variance inhomomgenity. We can sqrt transform the outcome
+```{r}
+lmer(sqrt(seizures/timeadj) ~ age + phase*drug + (1|id), data=epiData) %>% plot()
+```
+Which looks much better, but there are some weird straight lines in the residual plot this is probably due to the count structuce. If we look at the summary nothing is significant
+```{r}
+lmer(sqrt(seizures/timeadj) ~ age + phase*drug + (1|id), data=epiData) %>% summary()
+```
+
+
+

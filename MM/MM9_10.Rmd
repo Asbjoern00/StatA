@@ -1,0 +1,206 @@
+---
+title: "MM9"
+output: html_document
+date: "2023-12-02"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list = ls())
+library(ggplot2)
+library(dplyr)
+library(lme4)
+library(LabApplStat)
+library(readr)
+
+setwd("~/Desktop/statA/MM")
+satData <- read_csv("sat.csv",skip = 1) %>% mutate(studid = as.factor(studid), tchrid = as.factor(tchrid), year = as.factor(year))
+```
+
+# MM9
+
+## 1.
+
+We find the number of students and teachers by counting unique observations for each
+```{r}
+satData %>% group_by(studid) %>% count() %>% nrow() # 122 students
+satData %>% group_by(tchrid) %>% count() %>% nrow() # 12 teachers
+```
+And also count the mean number of tests per student
+```{r}
+satData %>% group_by(studid) %>% count() %>% ungroup() %>% summarise(mean(n))
+```
+Meaning a little under two tests are taken per kid.
+
+Consider the below cross-tabulation
+```{r}
+table(satData$tchrid, satData$year)
+```
+This shows two things. That teachers only taught one grade at a time and that the number of students they have vary considerably.
+
+We make a factor diagram with studentid, teacherid and year
+
+```{r}
+plot(DD(~studid+tchrid + year,  data = satData))
+
+```
+## 2.
+
+We want to see progression over time of the score. However, we still have to control for the fact that kids are different and that they are taught by different teachers. Not doing this will make it harder to detect the effect of progression. We do not want to say anything about the specific students/teachers, but about an average progression. This in combination with the fact that students/teachers are sampled from the overall population of students and teachers makes it most natural to consider these effects as random.
+
+## 3.
+
+We fit a model with random effects of student and teacher and fixed effect year, with year as a factor. Reparametrize the model here to make retrieving standard errors correct.
+
+```{r}
+mod <- lmer(math ~ year-1 + (1|tchrid) + (1|studid), data = satData)
+summary(mod)
+```
+We see that the estimated expected scores are 564.56, 607.77, 622.51, for grade 3, 4 and 5 respectively. The associated standard errors are 13.73, 16.82 and 14.70 respectively.
+
+The parameter estimates that there could be improvement across years. We can get a better feeling for this by computing some confidence intervals
+```{r}
+mod %>% confint()
+```
+We see that none of the confidence intervals for year cover 0, again indicating that there is some improvement. We can also do a formal hypothesis test by dropping the year factor
+```{r}
+drop1(mod, test = "Chisq")
+```
+Which indicates significance at a 5\% level.
+
+To answer whether it is reasonable to assume that students improve as much from 3rd to 4th grade as they do from 4th to 5th grade, we can do two things. 
+
+1. Reparameterize the model, to have 4th grade as the reference group. Consider the difference between the absolute value of the parameters correponding to 3rd and 5th grade as these are now measures of improvement relative to 4th grade. Compute a confidence interval for 
+$$
+|\beta_5| - |\beta_3|
+$$
+Most likely by bootstrapping, and check if 0 is covered by this. Alternatively do a hypothesis test based on the bootstrap.
+
+2. A more informal way of doing the above is to just reparametrize the model and check if there is overlap between the two confidence intervals.
+
+```{r}
+satData_mod <- satData
+satData_mod$year <- factor(satData_mod$year, levels = c("0","-1","1"))
+mod_contr <- lmer(math ~ year + (1|tchrid) + (1|studid), data = satData_mod)
+mod_contr %>% confint()
+```
+which definitely cover 0.
+
+## 4.
+
+Estimated std.dev/variance for observations in study is
+$$
+V(Y_i) = 336.8 + 829.7 + 238.5 = 1405
+$$
+Estimated correlation between observations from same student from different years
+$$
+\frac{336.8}{V(Y_i)} =  0.2397
+$$
+
+Estimtated correlation from same teacher
+$$
+\frac{829.7}{V(Y_i)} = 0.5905
+$$
+# MM 10
+
+## 1.
+
+We fit the same model as above with both REML and ML
+```{r}
+mod_REML <- lmer(math ~ year + (1|tchrid) + (1|studid), data = satData)
+mod_ML <- lmer(math ~ year + (1|tchrid) + (1|studid), data = satData, REML = FALSE)
+```
+
+```{r}
+summary(mod_REML)
+```
+```{r}
+summary(mod_ML)
+```
+The difference in both estimates and std. errors is negligable in this case. The std. errors are a bit lower for the ML approach.
+
+# 2.
+
+We conduct a simulation study to check whether the ML and REML estimators for the standard deviations are biased. We choose the ML model as the simulation model
+
+```{r}
+# Simulate n = 2000 datasets
+data_sets <- simulate(mod_ML, 2000)
+satData_copy <- satData
+
+get_sd_estim <- function(dataset){
+  #Update response
+  satData_copy$math <- dataset
+  
+  #Fit models 
+  mod_REML <- lmer(math ~ year + (1|tchrid) + (1|studid), data = satData_copy)
+  mod_ML <- lmer(math ~ year + (1|tchrid) + (1|studid), data = satData_copy, REML = FALSE)
+  
+  # Get dataframes for params
+  reml <- VarCorr(mod_REML) %>% data.frame() %>%  tibble() %>%
+    select(grp, sdcor) %>% mutate(type = "REML")
+  ml <- VarCorr(mod_ML) %>% data.frame() %>%  tibble() %>%
+    select(grp, sdcor) %>% mutate(type = "ML")
+  
+  return(bind_rows(reml,ml))
+
+}
+res <- lapply(data_sets, get_sd_estim) %>% bind_rows()
+```
+Let us first see if the estimators are biased
+```{r}
+estims <- res %>% group_by(grp, type) %>% summarise(estim = mean(sdcor)) 
+parms <- VarCorr(mod_ML) %>% data.frame() %>% tibble() %>% select(grp, sdcor) %>% rename(true = "sdcor")
+compare <- left_join(estims, parms) %>% mutate(abs_dev = abs(estim-true))
+compare
+```
+The estimates look fairl unbiased except for teacher id which is biased for both and especially for ML. 
+
+Let us look at the estimator distribution
+```{r}
+res %>% ggplot(aes(x = sdcor)) + geom_histogram() + facet_wrap(~type+grp) + theme_bw()
+```
+They do look somewhat normal but the teacherid one is fcking heavytailed.
+
+# 3.
+
+We check the coverage of confidence intervals of parameters using the same simulation routine as above
+
+```{r}
+ML_param <- mod_ML %>% fixef()
+REML_param <- mod_REML %>% fixef()
+
+get_coverage_estim <- function(dataset){
+  #Update response
+  satData_copy$math <- dataset
+  
+  #Fit models 
+  mod_REML <- lmer(math ~ year + (1|tchrid) + (1|studid), data = satData_copy)
+  mod_ML <- lmer(math ~ year + (1|tchrid) + (1|studid), data = satData_copy, REML = FALSE)
+  
+  #Check contained in confidence intervals
+  ml_confint <- confint(mod_ML, method = "Wald") 
+  ml_low <- ml_confint[,1][names(ML_param)] <= ML_param
+  ml_high <- ml_confint[,2][names(ML_param)] >= ML_param
+  
+  reml_confint <- confint(mod_REML, method = "Wald")
+  reml_low <- reml_confint[,1][names(ML_param)] <= ML_param
+  reml_high <- reml_confint[,2][names(ML_param)] >= ML_param
+  
+  ml_res <- ml_low*ml_high
+  reml_res <- reml_low*reml_high
+  
+  df_ml <- tibble(covers = ml_res, parameter = names(ml_res), type = "ML")
+  df_reml <- tibble(covers = reml_res, parameter = names(reml_res), type = "REML")
+  
+  return(bind_rows(df_ml, df_reml))
+}
+cov_res <- lapply(data_sets, get_coverage_estim) %>% bind_rows()
+
+#compute the coverage
+estim_cov <- cov_res %>% group_by(type,parameter) %>% summarize(coverage = mean(covers))
+estim_cov
+```
+Which is a horrible coverage and much lower than the claimed 95\%.
+
+

@@ -1,0 +1,130 @@
+---
+title: "MM17"
+output: html_document
+date: "2023-12-14"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list = ls())
+library(MASS)
+library(dplyr)
+library(nlme)
+library(lme4)
+library(LabApplStat)
+```
+
+# MM 17
+
+## 1.
+
+Load the data
+```{r}
+df <- oats %>% tibble()
+```
+
+
+## 2.
+
+We have discussed at lectures that if we know block and variety we also know the plot. Hence we can construct the plot factor as
+```{r}
+df <- df %>% mutate(P = B:V)
+```
+
+## 3. 
+
+Consider the model with Yield as outcome, fixed effect of variety (V) and nitrogen fertilizer (N) and their interaction. We consider block and plot as random effects. If we want to say something about varieties and fertilizers this is a reasonable model. We draw a factor diagram
+```{r}
+design <- DD(~V*N  + B +  P,data = df)
+plot(design)
+```
+
+## 4.
+
+We fit the model from above
+```{r}
+fit <- lmer(Y~V*N  + (1|B) +  (1|P), data = df)
+```
+And look at residual plots
+```{r}
+plot(fit)
+```
+Which looks very reasonable.
+
+## 5.
+
+We test if there is no interaction between variety and nitrogen.
+
+```{r}
+fit0 <- lmer(Y~V + N  + (1|B) +  (1|P), data = df)
+anova(fit0,fit)
+```
+We get a very large $p$-value and hence there is not evidence for an interaction effect.
+
+## 6.
+
+We inspect fit0 from above
+```{r}
+summary(fit0)
+```
+Not much to say here. Seems that there is an increas for higher nitrogen.
+
+## 7.
+
+We test whether yield is the same across nitrogen levels
+```{r}
+fit_null <- lmer(Y~ V + (1|B) +  (1|P), data = df)
+pbkrtest::PBmodcomp(fit0, fit_null)
+```
+We see that the $p$-values from simulation leads to the same conclusion. Both would be strong evidence but the LRT p-values is orders of magnitude larger than the simulated one.
+
+## 8
+
+We encode nitrogen as numeric and make a squared version of it to test the assumption that yield increases linearly with nitrogen.
+
+```{r}
+df <- df %>% mutate(Nnum = as.numeric(substr(N,1,3)))
+df$Nnum2 <- df$Nnum^2
+m2 <- lmer(Y ~ N + V + (1|P) + (1|B), data=df)
+m3 <- lmer(Y ~ Nnum + V + (1|P) + (1|B), data=df)
+m3sq <-lmer(Y ~ Nnum + Nnum2 + V + (1|P) + (1|B), data=df)
+```
+We do a LRT for the linear vs the square model
+
+```{r}
+anova(m3, m3sq)
+```
+And this is borderline significant but not something we would really call significant.
+
+## 9.
+
+Consider also the models
+```{r}
+m4 <- lmer(Y ~ Nnum + V + (Nnum||P), data=df)
+m5 <- lmer(Y ~ Nnum + V + (Nnum||B), data=df)
+m6 <- lmer(Y ~ Nnum + V + (Nnum||P) + (Nnum||B), data=df)
+```
+Notice that the double bars signifies independence between random slope and random intercept. Due to things being incorporated as random effects, only model 4 and model 5 are nested in model 6 - check that this is correct.
+
+## 10
+lets look at residual plots
+```{r}
+plot(m2)
+```
+```{r}
+plot(m3)
+```
+```{r}
+plot(m4)
+```
+```{r}
+plot(m3sq)
+```
+ok whatever everything looks just fine. I like the square model even tho it did not show particularly significant. The estimated increase in yield when going from 0 to 0.1 cwt nitrogen is
+
+```{r}
+((m3sq %>% fixef())["Nnum2"]*0.1^2 + (m3sq %>% fixef())["Nnum"]*0.1) %>% unname()
+```
+could compute a confidence interval for this using e.g. Wald, but don't really want to.
+
+

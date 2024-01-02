@@ -1,0 +1,121 @@
+---
+title: "MM7"
+output: html_document
+date: "2023-12-02"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list = ls())
+library(ggplot2)
+library(dplyr)
+library(lme4)
+library(pbkrtest)
+setwd("~/Desktop/statA/MM")
+load("tvdata.Rdata")
+mydata <- select(TVbo, Assessor, TVset, Picture, Sharpnessofmovement)
+mydata <- mutate(mydata, Product=TVset:Picture, Pair=Assessor:Product)
+mydata %>% summary()
+
+```
+# MM 7
+
+## 1.
+
+We summarise the data by getting the mean reported sharpness per assesor per product (picture/tvset combination)
+```{r}
+meanData1 <- mydata %>%
+group_by(Assessor,Picture,TVset) %>%
+summarize(m=mean(Sharpnessofmovement))
+```
+
+And plotting the results
+```{r}
+meanData1 %>%
+ggplot(aes(x=Picture:TVset, y=m, group=Assessor, col=Assessor)) +
+geom_line()
+```
+
+## 2.
+
+It is reasonable to include TVset and Picture as fixed effects, as these are exactly the products we are testing the quality of. We would really like to be able to say something about specifically these products, and not view them as sampled from a random population of products. On the other hand we dont care about the individual the effect of individual assesors which are likely sampled from some population. Therefore it makes sense to model assesor as a random effect, and hence also model `pair` which is derived from assesor as a random effect.
+
+
+## 3.
+We use the LabApplStat package to plot a factor diagram
+```{r}
+library(LabApplStat)
+dd <- DD(~TVset + Picture + Assessor + Pair, data = mydata)
+plot(dd)
+```
+
+## 4.
+
+We fit model and make residual plot
+
+```{r}
+lmer1 <- lmer(Sharpnessofmovement ~ TVset+Picture + (1|Assessor) +(1|Pair),
+data=mydata)
+lmer1 %>% plot()
+```
+This is assessed the same as for linear models. There is no variance inhomogenity and the mean structure looks ok. Overall the residual plot looks ok.
+
+## 5. 
+
+We look at the model summary
+
+```{r}
+summary(lmer1)
+```
+The Tvset with highest sharpness is TVset2 and the sharpest picture is from picture4. 
+
+
+## 6. 
+
+The marginal variance is simply the sum of the variance of the random effects and the residual variance, as the random effects are assumed independent (no covariance between Pair and Assessor). From the summary above we see
+$$
+V(Y_i) = 1.380 + 2.174 + 3.732 = 7.286  \Rightarrow SD(Y_i) = 2.7
+$$
+Recall that correlations in these types of models are the individual (co)-variance contributions divided by the total variance. Hence for the same assessor the correlation with different products is
+$$
+\rho = \frac{2.174}{7.286} = 0.3
+$$
+
+And if we are also considering the same pair
+$$
+\rho = \frac{2.174 + 1.380}{7.286} = 0.49
+$$
+
+# MM 8
+
+## 1.
+
+Refit the model
+
+```{r}
+lmer1 <- lmer(Sharpnessofmovement ~ TVset+Picture + (1|Assessor) +(1|Pair),
+data=mydata)
+```
+
+
+## 2. & 3.
+
+We can do normal likelihood ratio test by the `drop1` command and compare the LRT to $\chi^2_2$ resp. $\chi^2_3$ distributions for `TVset` resp. `Picture`. We see that the sharpness does not differ by TV set but it does so by Picture.
+```{r}
+lmer1 %>% drop1(test = "Chisq")
+```
+We can also simulate via the `PBmodcomp` function, first for picture
+```{r}
+null_model_picture <- lmer(Sharpnessofmovement ~ TVset + (1|Assessor) +(1|Pair),
+data=mydata)
+PBmodcomp(lmer1, null_model_picture)
+```
+And then for the TVset
+
+```{r}
+null_model_tvset <- lmer(Sharpnessofmovement ~ Picture + (1|Assessor) +(1|Pair),
+data=mydata)
+PBmodcomp(lmer1, null_model_tvset)
+```
+The conclusion is the same.
+
