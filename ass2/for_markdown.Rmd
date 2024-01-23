@@ -1,0 +1,230 @@
+---
+title: "aflevering"
+output:
+  pdf_document:
+      keep_tex: TRUE
+date: "2023-10-17"
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(lme4)
+library(dplyr)
+library(ggplot2)
+library(pbkrtest)
+library(gridExtra)
+library(nlme)
+
+
+rm(list= ls())
+load("assignment2.Rdata")
+```
+
+## Part I 
+
+### 1.
+
+```{r}
+control <- toxData %>% filter(conc == 0)
+mod <- lmer(fluorescence ~ day-1 + (1|plate) , data = control) 
+confint(mod)
+```
+
+### 2. 
+```{r eval=FALSE, include=FALSE}
+null_mod <- lmer(fluorescence ~ (1|plate) , data = control)
+PBmodcomp(mod, null_mod, nsim = 3000)
+```
+Somewhat difference
+
+## Part II
+
+```{r}
+mod <- lmer(fluorescence ~ day*concFac-1 + (1|plate) , data = toxData)
+mod_sqrt <- lmer(sqrt(fluorescence) ~ day*concFac + (1|plate) , data = toxData)
+mod_log <- lmer(log(fluorescence) ~ day*concFac-1 + (1|plate) , data = toxData)
+```
+
+```{r}
+plot_mod <- function(mod, name){
+  resid <- mod %>% residuals(type = "pearson")
+  fitted <- mod %>% fitted()
+  for_plot <- tibble(residuals = resid, fitted = fitted)
+  for_plot %>% ggplot(aes(x=fitted, y = residuals)) + geom_point() + geom_hline(yintercept = 0) + theme_bw() + ylab(name)
+}
+
+mod %>% plot()
+mod_sqrt %>% plot()
+mod_log %>% plot()
+
+```
+We go log
+
+### 4.
+
+
+```{r}
+new_mod <- lme(fluorescence ~ day*concFac, random=~1|plate, data=toxData,
+weights = varPower(form=~fitted(.)))
+new_mod %>% plot()
+summary(new_mod)
+```
+
+We go log still
+
+## 5.
+Estimates
+```{r}
+reparm_log <- lmer(log(fluorescence) ~ day*concFac-1 + (1|plate) , data = toxData)
+(reparm_log %>% fixef())[c(1,2,3)] %>% exp()
+
+```
+
+confints. This is the median.
+```{r}
+((reparm_log %>% confint()))[c(3,4,5),] %>% exp()
+```
+```{r}
+toxData %>% ggplot(aes(x = concFac, y = fluorescence, color = day)) + geom_point() + geom_smooth(method="lm") + facet_wrap(~plate)
+```
+## 6
+
+Want the concentration that gives half fluoresence corresponding to the baseline conc.
+$$
+E(\log(f_b/2)) = E(log(f_b))-\log(2)   
+$$
+
+```{r eval=FALSE, include=FALSE}
+toxData <- toxData %>% mutate(log_conc = log(conc), log_conc_fac = as.factor(log_conc))
+subset_factors <- c("concFac0.005", "concFac0.0158", "concFac0.05", "concFac0.158", "concFac0.5",
+                    "concFac1.58", "concFac5", "concFac15.8")
+numeric_vals <- c(0.005,0.0158,0.05,0.158,0.5,1.58,5,15.8)
+log_numeric_vals <- log(numeric_vals)
+names(numeric_vals) <- subset_factors
+
+compute_ec50 <- function(base_day, data = toxData, coef = subset_factors){
+  mask <- (levels(data$day) == base_day)
+  order <- c(levels(data$day)[mask], levels(toxData$day)[!mask])
+  data <- data %>% mutate(day = factor(day, levels = order))
+  model <- lmer(log(fluorescence) ~ day*concFac + (1|plate) , data = data)
+  eff <- (model %>% fixef())[subset_factors]
+  
+  ec50_max_name <- eff[eff<= -log(2)][1] %>% names()
+  
+  
+  ec50_max_idx <- max((ec50_max_name == subset_factors)*(1:length(subset_factors)))
+  
+  intercept <- (model %>% fixef())["(Intercept)"]
+  
+  ec50_max <- log_numeric_vals[ec50_max_idx]
+  ec50_min <- log_numeric_vals[ec50_max_idx-1]
+  
+  flour_max <- eff[ec50_max_idx] + intercept
+  flour_min <- eff[ec50_max_idx-1] + intercept
+  
+  a <- (flour_max - flour_min)/(ec50_max - ec50_min)
+  b <- flour_max - a*ec50_max
+  
+  exp((intercept-log(2)-b)/a)
+}
+model <- lmer(log(fluorescence) ~ day*concFac-1 + (1|plate) , data = toxData)
+toxData_copy <- toxData
+res <- numeric()
+for (i in 1:1000){
+  sim <- simulate(model)
+  toxData_copy$fluorescence <- exp(sim$sim_1)
+  res[i] <- compute_ec50("1", data = toxData_copy) %>% unname()
+  
+}
+
+
+
+```
+
+
+
+## Part III
+
+### 8.
+
+math. $B_i$ are estimates of EC50 per day and $D_i$ are estimates for baseline per day.
+
+
+### 9.
+
+```{r eval=FALSE, include=FALSE}
+nlmm2 <- nlme(fluorescence ~ d/(1+(conc/b)^e), data = toxData, groups=~plate,
+  fixed = list(b~day-1, d~day-1, e~1), random = pdDiag(b + d + e~ 1),
+  start = c(b=rep(5,3), d=rep(2000,3), e=rep(1.5,1)),
+  weights = varPower(form=~fitted(.)))
+
+f <- function(x, b, d, e){
+  d/(1+(x/b)^e)
+}
+
+xs <- seq(0, 16, 0.1)
+coeff <- nlmm2$coefficients$fixed
+days <- c("day1", "day2", "day3")
+res <- tibble()
+for(day in days){
+  b <- coeff[paste("b", day, sep = ".")] %>% unname()
+  d <- coeff[paste("d", day, sep = ".")] %>% unname()
+  e <- coeff["e"] %>% unname()
+  fitted_fluor <- f(xs, b, d, e)
+  res <- bind_rows(res, tibble(FittedFlourescence = fitted_fluor, day = day, Conc = xs))
+}
+res %>% ggplot(aes(Conc, FittedFlourescence, color = day)) + geom_line() + theme_bw()
+
+```
+
+## 10.
+
+```{r eval=FALSE, include=FALSE}
+intervals(nlmm2, which = "fixed")
+```
+
+## IV
+
+### 11
+```{r}
+library(rstan)
+to_stan <- "data {
+int N;
+vector[N] day1dummy;
+vector[N] day2dummy;
+vector[N] day3dummy;
+vector[N] Z;
+vector[N] SE;
+}
+parameters {
+real theta_1;
+real theta_2;
+real theta_3;
+real<lower = 0> tau;
+}
+transformed parameters {
+real ratio_3_1 = theta_3/theta_1;
+}
+model {
+Z ~ normal(theta_1*day1dummy + theta_2*day2dummy + theta_3*day3dummy, sqrt(tau^2 + SE^2));
+}
+"
+write(to_stan, file = "model.stan")
+```
+
+```{r}
+data <- list(N = length(bData$Estimate), Z=bData$Estimate, day1dummy = bData$day1dummy, 
+             day2dummy = bData$day2dummy, day3dummy = bData$day3dummy, SE = bData$SE)
+fitted <- rstan::stan("model.stan", data = data, iter = 32000, chains = 4)
+```
+
+```{r}
+fitted
+```
+
+```{r}
+traceplot(fitted, pars = c("theta_1","theta_2","theta_3","tau"))
+```
+
+

@@ -1,0 +1,107 @@
+---
+title: "BS11"
+output: html_document
+date: "2024-01-02"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list = ls())
+library(ggplot2)
+library(dplyr)
+```
+
+# BS 11
+
+## 1. 
+
+Target density $q(\theta) = \exp(-\theta^2/2) 1_{(0,\infty)}(\theta)$, i.e. proportional to normal distribution but only with support on the positive real line, proposal density $g_1(\theta) =  \exp(-\theta^2/2) $ i.e. unnormalized density for gaussian on entire real line. Clearly it is possible to sample from a distribution proportional to $\g_1$, namely a standard normal density. We have that $q(\theta) \leq 1 \cdot g_1(\theta)$ for all $\theta$ showing that we can choose $M = 1$ as the constant in rejection sampling. 
+
+## 2.
+
+We have that 
+$$
+\alpha = \frac{q(\theta^*)}{Mg_1(\theta^*)} =  \begin{cases}
+0, \theta\leq 0 \\
+1 , \theta > 0 
+\end{cases}
+$$
+Hence the rejection sampling algorithm is just sampling from a standard gaussian, and rejecting if we see something negative.
+
+## 3.
+
+Consider the proposal
+$$
+g_2(\theta) = e^{-\theta}
+$$
+Which is a standard exponential variable.
+
+## 4.
+
+We can clearly sample directly from $g_2$. We have that
+$$
+q(\theta) = \exp(-\theta^2/2) \leq M \exp(\theta)\Leftrightarrow \exp(-\theta^2/2 - \theta)\leq M
+$$
+The left hand side is maximal when $-\theta^2/2 -\theta$ is maximal, taking derivatives,
+$$
+\frac{d}{d\theta}(-\theta^2/2 -\theta) = -\theta -1 = \theta = -1
+$$
+Which is easily seen to be a maximum. So
+$$
+ \exp(-\theta^2/2 - \theta) \leq \exp(-(-1)^2/2-(-1))\leq \exp(1/2)
+$$
+So choosing $M = \exp(1/2)$ we get the smallest valid $M$ possible for the rejection sampling to work, also showing that $g_2$ is a valid proposal func. 
+
+## 5.
+
+We envelope the normal density with a standard exponential scaled by $\exp(1/2)$. 
+
+## 6.
+
+The algorithm is implemented below.
+
+```{r}
+q <- function(theta){
+  exp(-theta^2/2)
+}
+g_2 <- function(theta){
+  exp(-theta)
+}
+M <- exp(1/2)
+
+res <- c()
+iter <- 0
+while(length(res) < 5000){
+  iter <- iter + 1
+  samp <- rexp(1)
+  alpha <- q(samp)/(M*g_2(samp))
+  U <- runif(1)
+  if(U < alpha){
+    res <- append(res, samp)
+  }
+}
+```
+We compute the acceptance rate as
+```{r}
+5000/iter
+```
+
+## 7.
+
+The true density can be found by identifying a normalizing constant for $q$
+$$
+\int_0^\infty \exp(-\theta^2/2) d\theta = 1/2 \int_{-\infty}^\infty \exp(-\theta^2/2) d\theta = \frac{1}{2}\cdot \sqrt{2\pi} \int_{-\infty}^\infty \frac{1}{\sqrt{2\pi}} \exp(-\theta^2/2) d\theta = \sqrt{\frac{\pi}{2}}
+$$
+Which gives the target density
+$$
+\sqrt{\frac{2}{\pi}}\exp(-\theta/2)
+$$
+
+We plot a histogram plus the actual density
+```{r}
+df <- tibble(sample = res, density = sqrt(2/pi)*q(res))
+df %>% ggplot(aes(x = sample,y=density)) + geom_line() + geom_histogram(aes(sample, y =after_stat(density)), inherit.aes = FALSE) + theme_bw()
+```
+## 8. 
+
+Already did this in 4.
