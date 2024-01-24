@@ -1,0 +1,322 @@
+---
+title: "Exam 2023"
+output: 
+  pdf_document:
+      keep_tex: TRUE
+date: "2024-01-23"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+library(lme4)
+library(pbkrtest)
+library(dplyr)
+library(ggplot2)
+library(brms)
+library(LabApplStat)
+```
+
+# Exercise 1
+
+Let $X$ be uniform on the unit interval. Let $Y | X = x \sim \mathcal{N}(0,x)$. 
+
+## 1.
+
+We can simulate from the joint distribution of $(X,Y)$ by first simulating from the marginal of $X$ and then using the conditional distribution of $Y$ given $X$ to simulate from $Y$. We count the number of times out of $n = 10^5$ that $Y < 1$ to get an estimate of $P(Y < 1)$. Recall that \texttt{r} parametrizes the normal distribution with the standard deviation, so we take the square root of $X$ below
+
+```{r}
+set.seed(1)
+n <- 10e5
+X <- runif(n)
+Y <- rnorm(n, 0, sqrt(X))
+mean(Y < 1)
+```
+We see that $P(Y < 1) \approx 0.924313$.
+
+## 2.
+
+By the law of total expectation 
+
+$$
+E(Y) = E(E(Y|X)) = E(0) = 0
+$$
+And by theorem 3.3
+
+$$
+V(Y) = V(E(Y|X)) + E(V(Y|X)) = V(0) + E(X) = 1/2
+$$
+
+
+## 3.
+
+Since $X$ and $Y | X = x$ both have densities w.r.t. the Lebesgue measure which is $\sigma$-finite, it follows from theorem 2.1 that $(X,Y)$ has joint density $h$ w.r.t. the 2-dimensional lebesgue measure. We have that 
+$$
+h(x,y) = q(x) \cdot g_x(y) = 1_{[0,1]}(x) \cdot \frac{1}{\sqrt{2\pi x}} \exp(-\frac{y^2}{2x} )
+$$
+It now follows from theorem 2.2 that the conditional distribution of $X | y = t$ exists and has density w.r.t. the Lebesgue measure which satisfies by
+$$
+q_y(x) \propto h(x,y) = 1_{[0,1]}(x) \cdot \frac{1}{\sqrt{2\pi x}} \exp(-\frac{y^2}{2x} ) \propto 1_{(0,1)}(x) \cdot x^{-1/2} \exp(-\frac{y^2}{2x} )
+$$
+
+## 4.
+
+Consider the case $Y = 0$. Then 
+$$
+q_0(x) \propto 1_{(0,1)}(x) \cdot x^{-1/2} \exp(0) = 1_{(0,1)}(x) \cdot x^{-1/2}
+$$
+Recall that the $\chi^2(1)$ has density
+$$
+f(x) = \frac{1}{2^{1/2}\Gamma(1/2)} x^{-1/2} \exp(-x/2) 1_{(0,\infty)}(x) = C x^{-1/2} \exp(-x/2) 1_{(0,\infty)}(x)
+$$
+Letting $C = \frac{1}{2^{1/2}\Gamma(1/2)}$. We can clearly sample from the $\chi^2(1)$ distribution, and noting that for some constant $M > 0$
+$$
+1_{(0,1)}(x) \cdot x^{-1/2} \leq M \cdot C \cdot x^{-1/2} \exp(-x/2) 1_{(0,\infty)}(x) \Leftrightarrow 1_{(0,1)}(x) \leq M \cdot C \cdot  \exp(-x/2) 1_{(0,\infty)}(x)
+$$
+If $x \geq 1$ the inequality trivially holds. If $0 \leq x < 1$ we have that $\exp(-1/2) < \exp(-x/2) \leq 1$, hence if we want the inequality to hold for all $x \in (0,1)$ we have to solve
+$$
+1 \leq M \cdot C \cdot \exp(-1/2) \Leftrightarrow \frac{\exp(1/2)}{C} \leq M 
+$$
+The value $M$ that maximizes the acceptance probability is the $M$ that ensures equality in the above
+$$
+M = \frac{\exp(1/2)}{C} = 2^{1/2}\Gamma(1/2) \exp(1/2)
+$$
+With this choice of $M$ we obtain that 
+$$
+1_{(0,1)}(x) \cdot x^{-1/2} \leq M \cdot f(x)
+$$
+Which shows that we can use rejecetion sampling with $\chi^2(1)$ as the proposal to sample from $Q_0$. The probability that a sample $x^*$ will be accepted is
+$$
+\alpha = \frac{1_{(0,1)}(x^*) \cdot (x^*)^{-1/2}}{Mf(x^*)}
+$$
+Which could probably be simplifed. We simulate from $Q_0$ and compute $E(Y| X= 0 )$.
+```{r}
+set.seed(1)
+C <- 1/(2^(1/2)*gamma(1/2))
+M <- exp(1/2)/C
+proposal <- function(x){
+  dchisq(x, 1)
+}
+target <- function(x){
+  (x>0)*(x<1)*x^(-1/2)
+}
+sample_dist <- function(n){
+  rchisq(n=n, df = 1)
+}
+
+rejection_sample <- function(M, proposal, target, sample_dist, print_acceptance = TRUE){
+  theta_star <- sample_dist(n = 1e6)
+  U <- runif(1e6)
+  alpha <- target(theta_star)/(M*proposal(theta_star))
+  idx <- (U <= alpha)
+  if(print_acceptance){
+    cat("Acceptance rate is: ", sum(idx)/1e6)
+  }
+  return(theta_star[idx])
+}
+X <- rejection_sample(M, proposal = proposal, target = target, sample_dist = sample_dist)
+mean(X)
+```
+
+We get $E(Y|X = 0) \approx 0.3329909$.
+
+\textbf{COMMENT}: It is actually not necessary to carry around the constant $C$ for the $\chi^2$ distribution in the above. If only calculating up to proportionality it will cancel when computing $\alpha$. This would mean that the sample_dist parameter above should be the unnormalized proposal instead. Accordingly $M$ would change from $M = \exp(1/2)/C$ to $M = \exp(1/2)$. 
+
+# Exercise 2
+
+We load the data and add $\log(SOC)$ as a variable in the dataset.
+```{r}
+rm(list = ls())
+load("april22.Rdata")
+SOCdata <- SOCdata %>% tibble() %>% mutate(log_SOC = log(SOC))
+```
+
+## 1.
+
+It is most appropriate to use plant as a random factor, as we want to view the plants as a random sample from the population of plants, such that we can draw inference for the population of plants as a whole and not just about the specific plants in the dataset. Furthermore, measurements from the same plant is likely correlated, so it would be inappropriate to model observations from the same plant as independent.
+
+In this experiment it is most appropriate to model block as a fixed effect rather than a random effect because the 'were deliberately chosen such that they represent three different soil conditions'. This means that we are not interested in viewing blocks as a sample from the 'population of blocks', but rather we may be interested in saying something about the soil conditions effect on soil organic carbon. Hence, we should model it as a fixed effect.
+
+We fit \texttt{M1} and \texttt{M2}. And make residual plots. Note that the plot on the left is the one were SOC is not log-transformed and the one on the right is the log-transformed version
+
+```{r}
+M1 <- lmer(SOC ~ Treat -1 + Block*DepthFac + (1|Plant), data=SOCdata)
+M2 <- lmer(log_SOC ~ Treat -1 + Block*DepthFac + (1|Plant), data=SOCdata)
+gridExtra::grid.arrange(
+  plot(M1),
+  plot(M2),
+  ncol = 2
+)
+```
+
+We see a clear pattern in the residual plot from the non-logtransformed model. There is clear overdispersion/variance inhomogeneity as variance seems to increase with fitted values. The mean value structure also looks a bit off for small fitted values as there seems to be a downward trend in the residuals for small fitted values. The residual after log-transformation is much nicer. There is no sign of variance inhomogeneity and the mean structure also seems good. 
+
+## 2.
+
+We print a summary of \texttt{M2}
+```{r}
+summary(M2)
+```
+We see that the residual variance is estimated to $\hat{\sigma} = 0.09356$ and the within plant variance is estimated to $\hat{\sigma}_p = 0.02366$. This implies that
+$$
+\hat{V}(Y_1) = \hat{\sigma}^2 + \hat{\sigma}^2_p = 0.02366+ 0.09356 = 0.11722
+$$
+If we have another measurement from the same plant but at different depths, an estimate for $\rho(Y_1, Y_2)$ is
+$$
+\hat{\rho}(Y_1, Y_2) = \frac{\hat{\sigma}^2_p}{\hat{\sigma}^2 + \hat{\sigma}^2_p} = \frac{0.02366}{0.11722} = 0.2018427
+$$
+
+## 3
+
+Consider the models \texttt{M2} and \texttt{M3}. When we test the model reduction from \texttt{M2} to \texttt{M3} we are testing the hypothesis
+$$
+H_0: EY \in  L_{Block \, \times DepthFac}
+$$
+Against the larger model
+$$
+EY \in L_{Treat} + L_{Block \, \times DepthFac}
+$$
+
+We do this by computing a Likelihood ratio test statistics. Notice that we have 10 treatments, so we should compare the likelihood ratio test statistic to a $\chi^2 (10-1)$ distribution, i.e. a $\chi^2$ distribution with $9$ degrees of freedom. We carry out the test with the \texttt{PBModComp} function from \texttt{pbkrtest}
+```{r}
+
+M3 <- lmer(log_SOC ~ Block*DepthFac + (1|Plant), data=SOCdata)
+PBmodcomp(M2, M3, nsim = 1000)
+```
+We see that we get a LRT statistic of 26.46, and the corresponding $p$-value is 0.001717. This is significant, and hence we reject $H_0$ - and even fairly strongly so.
+
+## 4.
+
+In question 3, we actually also simulated 1000 LRT statistics from the model. From these we get a $p$-value of 0.028971 This is still significant at a $5\%$ level, but it is an order of magnitude larger than the $\chi^2$-approximation and all in all much less convicing, even though we would still reject $H_0$. 
+
+
+## 5.
+
+Consider \texttt{M2}. Let $\alpha_A, \cdots \alpha_I, \alpha_{control}$ be the first ten parameters of the model and let $\delta = \frac{1}{9} (alpha_A + \cdots + \alpha_I) - \alpha_{control}$. That is, $\delta$ is the average of the log-SOC for giving some treatment subtracted with the log-SOC level for the control group. Hence, $\delta$ can be interpreted as the average effect (change relative to control) of giving some treatment. We compute an estimate for $\delta$. 
+```{r}
+(mean(fixef(M2)[1:9]) - fixef(M2)[10]) %>% unname()
+```
+And so $\hat{\delta} = 0.4267139$. Notice that we could also have computed this as 
+$$
+A^T \begin{pmatrix} \alpha_A & \alpha_B & \cdots &  \alpha_I  & \alpha_{control} \end{pmatrix}
+$$
+
+$$
+A= \begin{pmatrix} 1/9 \\ 1/9  \\  \vdots \\  -1 \end{pmatrix}
+$$
+Let $\hat{\Sigma}$ be the estimated covariance matrix for the $\alpha$ estimates. Per the above, and since the estimates has a normal distribution under the model assumptions, we can compute an estimate of the variance for $\delta$ as
+$$
+\hat{V}(\hat{\delta}) = A^T \hat{\Sigma} A
+$$
+And so an estimate for the standard error is
+```{r}
+A <- matrix(c(rep(1/9,9),-1),1,10)
+sqrt(A %*% vcov(M2)[1:10,1:10] %*% t(A))[1,1]
+```
+And so
+$$
+\hat{SE}(\hat{\delta}) = 0.1320083
+$$
+
+## 6.
+
+Consider \texttt{M4}
+```{r}
+M4 <- lmer(log_SOC ~ Treat2 + Block*DepthFac + (1|Treat) + (1|Plant),
+data=SOCdata)
+```
+In this model, the estimate for \texttt{Treat2} is exactly the expected difference in log(SOC) between an average EFB treatment and control. Looking at the summary we see that
+```{r}
+summary(M4)
+```
+Hence our estimate $\hat{\delta}'$ for the expected difference in log(SOC) between an average EFB treatment and control is thus
+$$
+\hat{\delta}' = 0.42671 
+$$
+and the associated standard error is
+$$
+\hat{SE}(\hat{\delta}') = 0.18097 
+$$
+
+Notice that the estimate is exactly the same due to the balanced design, but that the standard error is know higher, likely due to the fact that we have included treatment as a random effect. If we fit the model with \texttt{lmerTest} we get a $p$-value from $t$-distribution for the $\hat{\delta}'$ estimate
+```{r}
+lmerTest::lmer(log_SOC ~ Treat2 + Block*DepthFac + (1|Treat) + (1|Plant),
+data=SOCdata) %>% summary()
+```
+And we see that the effect of EFB treatment is borderline significant at the $5\%$ level. We can also do a likelihood ratio test (with both simulated and the $\chi^2(1)$ approximation) using \texttt{PBmodComp} of the same hypothesis:
+```{r}
+
+M4_small <- lmer(log_SOC ~ Block*DepthFac + (1|Treat) + (1|Plant),
+data=SOCdata)
+
+PBmodcomp(M4, M4_small)
+```
+We see that the $p$-value corresponding to the $\chi^2(1)$ is around the same level as with the $t$-test. The $p$-value from the simulated LRT statistics seems to agrees. All in all there is some evidence that the EFB treatment works, but it is not crystal clear.
+
+## 7.
+
+We estimate $\rho$ the same as we did in question 2, namely 
+$$
+\hat{\rho}(Y_1, Y_2) = \frac{\hat{\sigma}^2_p}{\hat{\sigma}^2 + \hat{\sigma}^2_p} 
+$$
+We do this for all the simulated values from the posterior distribution, and compute a 95\% credible interval by taking quantiles in this distribution. We compute posterior mean by taking the mean for the simulated values of $\rho$:
+```{r}
+brmSim2 %>% tibble() %>% 
+  select(sd_Plant__Intercept,sigma) %>% 
+  mutate(rho = sd_Plant__Intercept^2/(sd_Plant__Intercept^2 + sigma^2) ) %>%
+  select(rho) %>% 
+  summarise(post_mean = mean(rho), lower_q = quantile(rho, 0.025), upper_rho = quantile(rho, 0.975))
+
+```
+Hence the posterior mean for $\rho$ is 0.205, and a 95\% credible interval for $\rho$ is $[0.00528,0.472]$. 
+
+
+# Exercise 3
+
+We write the model to a .stan file
+```{r}
+library(rstan)
+to_stan <- "data {
+int N;
+vector[N] y;
+}
+parameters {
+real<lower = 0, upper = 1> theta;
+}
+model {
+y ~ normal(0, sqrt(theta));
+}
+"
+write(to_stan, file = "model.stan")
+```
+Stan per default uses the uniform prior, and since we have restricted $\theta$ to be in the interval between $0$ and $1$, this really does corresponds to the model setup. We simulate from the posterior of $\theta$ using 4 chains, 6000 iterations and using half for burn-in, with our given data that is
+```{r}
+y <- c(0.556,0.225,0.154,0.644,0.245,0.520,1.033,-0.067,0.367,-0.743)
+n <- length(y)
+data = list(N = n , y = y)
+stan_fit <- stan("model.stan", iter = 6000, data = data, verbose = FALSE, seed = 1)
+```
+We show traceplots for $\theta$ below,
+```{r}
+traceplot(stan_fit)
+```
+The chains seem to be well-mixing. We do not see anything alarming - i.e. we do not see anything systematic trends within chains over time and we do not see differences between chains. We print a summary of the model
+```{r}
+stan_fit
+```
+We see that $\hat{R}$ for $\theta$ is 1, indicating that the chains have converged to their stationary distribution. 
+
+## 2.
+
+We simulate from the posterior predictive distribution of $\tilde{Y}$ by using our simulated values of $\theta$ from $\theta$'s posterior distribution to simulate from the conditional $Y | \theta = \theta' \sim \mathcal{N}(0,\theta')$.
+
+```{r}
+set.seed(1)
+theta <- extract(stan_fit)$theta
+y_post <- rnorm(length(theta) , 0, theta^2)
+```
+
+Say that researchers observe $y = 1.4$. The probability of observing something as extreme as 1.4 in the posterior predictive distribution is
+```{r}
+mean(y_post > 1.4)
+```
+Which must be considered fairly extreme. This would indicate that the conditions for the experiment has indeed changed as the researchers are concerned about.
